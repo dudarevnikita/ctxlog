@@ -5,6 +5,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,9 @@ import (
 
 	"ctxlog/memory"
 )
+
+//go:embed skills/claude/SKILL.md
+var claudeSkill []byte
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `ctxlog — persistent, sharded context logging for AI agent sessions
@@ -26,23 +30,28 @@ Commands:
   update    Update an existing entry by line number
   delete    Delete an entry by line number
   clear     Remove an entire shard file
-  install   Install the Claude Code skill to ~/.claude/skills/
+  install   Install agent skill (-type=claude)
+
+Global flags:
+  -global    Use ~/.ctxlog/ instead of <cwd>/.ctxlog/
 
 Flags by command:
 
-  append  -shard=<name>  -msg=<text>  [-agent=<id>]
-  read    -shard=<name>  [-lines=10]
-  update  -shard=<name>  -line=<num>  -msg=<new_text>
-  delete  -shard=<name>  -line=<num>
-  clear   -shard=<name>
+  append  -shard=<name>  -msg=<text>  [-agent=<id>]  [-global]
+  read    -shard=<name>  [-lines=10]  [-global]
+  update  -shard=<name>  -line=<num>  -msg=<new_text>  [-global]
+  delete  -shard=<name>  -line=<num>  [-global]
+  clear   -shard=<name>  [-global]
 
 Examples:
   ctxlog append -shard="auth-refactor" -msg="switched to JWT middleware" -agent="claude"
   ctxlog read   -shard="auth-refactor" -lines=5
+  ctxlog append -global -shard="notes" -msg="global note across projects"
+  ctxlog read   -global -shard="notes"
   ctxlog update -shard="auth-refactor" -line=2 -msg="JWT middleware validated in staging"
   ctxlog delete -shard="auth-refactor" -line=3
   ctxlog clear  -shard="auth-refactor"
-  ctxlog install
+  ctxlog install -type=claude
 `)
 }
 
@@ -67,16 +76,16 @@ func main() {
 	case "clear":
 		cmdClear(os.Args[2:])
 	case "install":
-		cmdInstall()
+		cmdInstall(os.Args[2:])
 	default:
 		fatalf("unknown command: %q\nRun 'ctxlog --help' for usage.", os.Args[1])
 	}
 }
 
 func cmdAppend(args []string) {
-	shard, msg, _, agent := parseFlags("append", args, true, true, false, true)
+	shard, msg, _, agent, global := parseFlags("append", args, true, true, false, true)
 
-	store := storeFromCwd()
+	store := getStore(global)
 	err := store.Append(shard, memory.Entry{
 		Agent: agent,
 		Msg:   msg,
@@ -92,13 +101,14 @@ func cmdRead(args []string) {
 	fs := flag.NewFlagSet("read", flag.ExitOnError)
 	shard := fs.String("shard", "", "shard name (required)")
 	lines := fs.Int("lines", 10, "number of recent lines to return")
+	global := fs.Bool("global", false, "use ~/.ctxlog/")
 	fs.Parse(args)
 
 	if *shard == "" {
 		fatalf("read: -shard is required")
 	}
 
-	store := storeFromCwd()
+	store := getStore(*global)
 
 	entries, err := store.ReadRecent(*shard, *lines)
 	if err != nil {
@@ -112,9 +122,9 @@ func cmdRead(args []string) {
 }
 
 func cmdUpdate(args []string) {
-	shard, msg, line, _ := parseFlags("update", args, true, true, true, false)
+	shard, msg, line, _, global := parseFlags("update", args, true, true, true, false)
 
-	store := storeFromCwd()
+	store := getStore(global)
 	if err := store.Update(shard, line, msg); err != nil {
 		fatalf("update: %v", err)
 	}
@@ -123,9 +133,9 @@ func cmdUpdate(args []string) {
 }
 
 func cmdDelete(args []string) {
-	shard, _, line, _ := parseFlags("delete", args, true, false, true, false)
+	shard, _, line, _, global := parseFlags("delete", args, true, false, true, false)
 
-	store := storeFromCwd()
+	store := getStore(global)
 	if err := store.Delete(shard, line); err != nil {
 		fatalf("delete: %v", err)
 	}
@@ -134,9 +144,9 @@ func cmdDelete(args []string) {
 }
 
 func cmdClear(args []string) {
-	shard, _, _, _ := parseFlags("clear", args, true, false, false, false)
+	shard, _, _, _, global := parseFlags("clear", args, true, false, false, false)
 
-	store := storeFromCwd()
+	store := getStore(global)
 	if err := store.Clear(shard); err != nil {
 		fatalf("clear: %v", err)
 	}
@@ -144,59 +154,66 @@ func cmdClear(args []string) {
 	fmt.Fprintf(os.Stderr, "ok: cleared .ctxlog/%s.jsonl\n", shard)
 }
 
-const skillContent = `## Metadata
-name: Context Logger (ctxlog)
-description: Apply long-term memory and cross-session state persistence using the ctxlog CLI tool.
+var agents = map[string]struct {
+	content  []byte
+	checkDir string // directory that must exist (relative to $HOME)
+	destDir  string // install destination (relative to $HOME)
+}{
+	"claude": {
+		content:  claudeSkill,
+		checkDir: ".claude",
+		destDir:  filepath.Join(".claude", "skills", "ctxlog"),
+	},
+}
 
-## Overview
-This Skill provides Claude with a persistent memory system. Because Claude loses context between sessions, ` + "`ctxlog`" + ` acts as a sharded, append-only local database. When working on complex tasks, Claude must use this tool to log progress, save bug workarounds, or read previous context.
+func cmdInstall(args []string) {
+	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	agentType := fs.String("type", "", "agent type to install skill for (e.g. claude)")
+	fs.Parse(args)
 
-## How to Use (Execution)
-Execute the global CLI binary directly in the terminal shell:
-- To write memory: ` + "`ctxlog append -shard=\"<task_id>\" -msg=\"<your_message>\"`" + `
-- To read memory: ` + "`ctxlog read -shard=\"<task_id>\" -lines=10`" + `
-- To update a specific line: ` + "`ctxlog update -shard=\"<task_id>\" -line=<num> -msg=\"<new_text>\"`" + `
-- To delete a specific line: ` + "`ctxlog delete -shard=\"<task_id>\" -line=<num>`" + `
-- To wipe a shard: ` + "`ctxlog clear -shard=\"<task_id>\"`" + `
+	if *agentType == "" {
+		supported := make([]string, 0, len(agents))
+		for k := range agents {
+			supported = append(supported, k)
+		}
+		fatalf("install: -type is required\nSupported: %v", supported)
+	}
 
-## When to Apply
-Apply this skill strictly when:
-- You have completed a significant logical block of a task.
-- You have discovered a bug workaround that you might need to remember later.
-- You are starting a new session and need to recall what was done previously on a specific ` + "`<task_id>`" + `.
+	agent, ok := agents[*agentType]
+	if !ok {
+		fatalf("install: unknown agent type %q", *agentType)
+	}
 
-## Strict Rules
-- NEVER invent or create your own markdown memory files (like ` + "`memory.md`" + ` or ` + "`notes.txt`" + `).
-- ALWAYS rely exclusively on the ` + "`ctxlog`" + ` CLI tool for state persistence.
-- Keep the ` + "`-msg`" + ` payload concise and factual.
-- If memory contains outdated or resolved issues, use ` + "`update`" + ` or ` + "`delete`" + ` to keep the context clean and save tokens.
-`
-
-func cmdInstall() {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fatalf("install: cannot determine home directory: %v", err)
 	}
 
-	dir := filepath.Join(home, ".claude", "skills", "ctxlog")
+	checkPath := filepath.Join(home, agent.checkDir)
+	if _, err := os.Stat(checkPath); os.IsNotExist(err) {
+		fatalf("install: %s not found.\nPlease install %s first, then re-run this command.", checkPath, *agentType)
+	}
+
+	dir := filepath.Join(home, agent.destDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fatalf("install: mkdir: %v", err)
 	}
 
 	path := filepath.Join(dir, "SKILL.md")
-	if err := os.WriteFile(path, []byte(skillContent), 0o644); err != nil {
+	if err := os.WriteFile(path, agent.content, 0o644); err != nil {
 		fatalf("install: write: %v", err)
 	}
 
-	fmt.Printf("installed skill to %s\n", path)
+	fmt.Printf("installed %s skill to %s\n", *agentType, path)
 }
 
-func parseFlags(cmd string, args []string, needShard, needMsg, needLine, needAgent bool) (shard, msg string, line int, agent string) {
+func parseFlags(cmd string, args []string, needShard, needMsg, needLine, needAgent bool) (shard, msg string, line int, agent string, global bool) {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	shardP := fs.String("shard", "", "")
 	msgP := fs.String("msg", "", "")
 	lineP := fs.Int("line", 0, "")
 	agentP := fs.String("agent", "", "")
+	globalP := fs.Bool("global", false, "")
 	fs.Parse(args)
 
 	if needShard && *shardP == "" {
@@ -208,15 +225,25 @@ func parseFlags(cmd string, args []string, needShard, needMsg, needLine, needAge
 	if needLine && *lineP <= 0 {
 		fatalf("%s: -line is required (must be >= 1)", cmd)
 	}
-	return *shardP, *msgP, *lineP, *agentP
+	return *shardP, *msgP, *lineP, *agentP, *globalP
 }
 
-func storeFromCwd() *memory.Store {
-	cwd, err := os.Getwd()
-	if err != nil {
-		fatalf("getwd: %v", err)
+func getStore(global bool) *memory.Store {
+	var base string
+	if global {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fatalf("home: %v", err)
+		}
+		base = home
+	} else {
+		cwd, err := os.Getwd()
+		if err != nil {
+			fatalf("getwd: %v", err)
+		}
+		base = cwd
 	}
-	store := memory.NewStore(cwd)
+	store := memory.NewStore(base)
 	if err := store.Init(); err != nil {
 		fatalf("init: %v", err)
 	}
