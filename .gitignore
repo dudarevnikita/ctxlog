@@ -1,0 +1,18 @@
+# Binary
+ctxlog
+
+# Data
+.ctxlog/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# GoReleaser
+dist/

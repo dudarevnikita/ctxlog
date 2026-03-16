@@ -1,0 +1,47 @@
+version: 2
+
+project_name: ctxlog
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - format: tar.gz
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+brews:
+  - repository:
+      owner: dudarevnikita
+      name: homebrew-tools
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/dudarevnikita/ctxlog"
+    description: "Lightweight CLI tool for persistent, sharded context logging across AI agent sessions"
+    license: "MIT"
+    install: |
+      bin.install "ctxlog"
+    test: |
+      assert_match "usage:", shell_output("#{bin}/ctxlog 2>&1", 1)
