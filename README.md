@@ -74,13 +74,15 @@ ctxlog clear -shard="auth"
 
 Deletes the entire shard file.
 
-### Install Claude Code skill
+### Install agent skill
 
 ```bash
-ctxlog install
+ctxlog install -type=claude
 ```
 
-Writes `SKILL.md` to `~/.claude/skills/ctxlog/` so Claude Code automatically knows how to use the tool across all projects.
+Installs the skill file for the specified agent. Checks that the agent's config directory exists first (e.g. `~/.claude` for Claude Code).
+
+Supported agents: `claude`. More coming soon.
 
 ## File structure on disk
 
@@ -113,7 +115,9 @@ Each `.jsonl` file contains one JSON object per line:
 | `delete` | `-shard` | yes | — | Shard name |
 | `delete` | `-line` | yes | — | 1-based line number to delete |
 | `clear` | `-shard` | yes | — | Shard name to remove |
-| `install` | — | — | — | No flags |
+| `install` | `-type` | yes | — | Agent type (`claude`) |
+
+All data commands (`append`, `read`, `update`, `delete`, `clear`) accept `-global` to use `~/.ctxlog/` instead of `<cwd>/.ctxlog/`.
 
 ## Concurrency
 
@@ -126,8 +130,10 @@ Safe for concurrent use across multiple processes:
 
 ```
 ├── go.mod
-├── main.go           # CLI entry point: subcommands, flags, help, install
+├── main.go               # CLI entry point: subcommands, flags, help, install
 ├── memory/
-│   └── memory.go     # Store: Append, ReadAll, ReadRecent, Update, Delete, Clear
+│   └── memory.go         # Store: Append, ReadAll, ReadRecent, Update, Delete, Clear
+├── skills/
+│   └── claude/SKILL.md   # Embedded skill prompt for Claude Code
 └── README.md
 ```

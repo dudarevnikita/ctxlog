@@ -19,8 +19,8 @@ go build -o ctxlog .
 ./ctxlog delete -shard="test" -line=1
 ./ctxlog clear -shard="test"
 
-# Install the Claude Code skill
-./ctxlog install
+# Install agent skill
+./ctxlog install -type=claude
 ```
 
 ## Architecture
@@ -29,7 +29,8 @@ CLI binary (`main.go`) wraps the `memory` package. All data lives in `.ctxlog/` 
 
 - `main.go` — CLI entry point. Parses subcommands and flags, dispatches to `memory.Store`.
 - `memory/memory.go` — Core `Store` type. Manages `.ctxlog/` directory with per-shard JSONL files. Uses BSD `flock` for cross-process file locking (exclusive for writes, shared for reads). CRUD: `Append`, `ReadAll`, `ReadRecent`, `Update`, `Delete`, `Clear`.
-- `ctxlog install` — Writes `SKILL.md` to `~/.claude/skills/ctxlog/` so Claude Code knows how to use the tool globally.
+- `skills/<agent>/SKILL.md` — Per-agent skill prompts, embedded into the binary via `go:embed`.
+- `ctxlog install -type=<agent>` — Installs the skill for the given agent. Checks the agent's config dir exists first (e.g. `~/.claude`).
 
 Entry format: `{"ts": <unix_seconds>, "agent": "<id>", "msg": "<text>"}`.
 
