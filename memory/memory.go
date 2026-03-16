@@ -39,7 +39,6 @@ func (s *Store) shardPath(shard string) string {
 }
 
 // Append writes a single Entry to the named shard.
-// Uses exclusive flock to prevent corruption from concurrent writers.
 func (s *Store) Append(shard string, e Entry) error {
 	if e.Ts == 0 {
 		e.Ts = time.Now().Unix()
@@ -74,9 +73,9 @@ func (s *Store) Append(shard string, e Entry) error {
 	return nil
 }
 
-// ReadRecent returns the last maxLines entries from the named shard.
+// ReadAll returns all entries from the named shard.
 // Returns an empty slice if the shard does not exist.
-func (s *Store) ReadRecent(shard string, maxLines int) ([]Entry, error) {
+func (s *Store) ReadAll(shard string) ([]Entry, error) {
 	path := s.shardPath(shard)
 
 	f, err := os.Open(path)
@@ -93,7 +92,7 @@ func (s *Store) ReadRecent(shard string, maxLines int) ([]Entry, error) {
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 
-	ring := make([]Entry, 0, maxLines)
+	var entries []Entry
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -104,15 +103,138 @@ func (s *Store) ReadRecent(shard string, maxLines int) ([]Entry, error) {
 		if err := json.Unmarshal(line, &e); err != nil {
 			continue
 		}
-		if len(ring) < maxLines {
-			ring = append(ring, e)
-		} else {
-			copy(ring, ring[1:])
-			ring[maxLines-1] = e
-		}
+		entries = append(entries, e)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
-	return ring, nil
+	return entries, nil
+}
+
+// ReadRecent returns the last maxLines entries from the named shard.
+func (s *Store) ReadRecent(shard string, maxLines int) ([]Entry, error) {
+	all, err := s.ReadAll(shard)
+	if err != nil {
+		return nil, err
+	}
+	if len(all) <= maxLines {
+		return all, nil
+	}
+	return all[len(all)-maxLines:], nil
+}
+
+// Delete removes the entry at the given 1-based line index from the shard.
+func (s *Store) Delete(shard string, lineIndex int) error {
+	path := s.shardPath(shard)
+
+	f, err := os.OpenFile(path, os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("open shard: %w", err)
+	}
+	defer f.Close()
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("flock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	lines, err := readLines(f)
+	if err != nil {
+		return err
+	}
+
+	idx := lineIndex - 1
+	if idx < 0 || idx >= len(lines) {
+		return fmt.Errorf("line %d out of range (1-%d)", lineIndex, len(lines))
+	}
+
+	lines = append(lines[:idx], lines[idx+1:]...)
+	return truncateAndWrite(f, lines)
+}
+
+// Update replaces the msg (and refreshes ts) of the entry at the given 1-based line index.
+func (s *Store) Update(shard string, lineIndex int, newMsg string) error {
+	path := s.shardPath(shard)
+
+	f, err := os.OpenFile(path, os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("open shard: %w", err)
+	}
+	defer f.Close()
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("flock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	lines, err := readLines(f)
+	if err != nil {
+		return err
+	}
+
+	idx := lineIndex - 1
+	if idx < 0 || idx >= len(lines) {
+		return fmt.Errorf("line %d out of range (1-%d)", lineIndex, len(lines))
+	}
+
+	var e Entry
+	if err := json.Unmarshal(lines[idx], &e); err != nil {
+		return fmt.Errorf("parse line %d: %w", lineIndex, err)
+	}
+
+	e.Msg = newMsg
+	e.Ts = time.Now().Unix()
+
+	updated, err := json.Marshal(e)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	lines[idx] = updated
+	return truncateAndWrite(f, lines)
+}
+
+// Clear removes the entire shard file.
+func (s *Store) Clear(shard string) error {
+	path := s.shardPath(shard)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove shard: %w", err)
+	}
+	return nil
+}
+
+func readLines(f *os.File) ([][]byte, error) {
+	if _, err := f.Seek(0, 0); err != nil {
+		return nil, fmt.Errorf("seek: %w", err)
+	}
+	var lines [][]byte
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		cp := make([]byte, len(line))
+		copy(cp, line)
+		lines = append(lines, cp)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+	return lines, nil
+}
+
+func truncateAndWrite(f *os.File, lines [][]byte) error {
+	if err := f.Truncate(0); err != nil {
+		return fmt.Errorf("truncate: %w", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		return fmt.Errorf("seek: %w", err)
+	}
+	for _, line := range lines {
+		line = append(line, '\n')
+		if _, err := f.Write(line); err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+	}
+	return nil
 }
