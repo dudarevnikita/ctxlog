@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-ctxlog — a lightweight CLI tool for persistent, sharded context logging across AI agent sessions. Append-only JSONL files with BSD `flock` for safe concurrent access. Zero external dependencies (Go standard library only).
+ctxlog — a lightweight CLI tool for persistent, sharded context logging across AI agent sessions. Per-shard JSONL files with full CRUD and BSD `flock` for safe concurrent access. Zero external dependencies (Go standard library only).
 
 ## Build & Test
 

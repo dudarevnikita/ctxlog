@@ -1,5 +1,5 @@
-// Package memory implements sharded append-only JSONL storage
-// with BSD flock for cross-process safety.
+// Package memory implements sharded JSONL storage with CRUD operations
+// and BSD flock for cross-process safety.
 package memory
 
 import (

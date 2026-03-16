@@ -1,6 +1,6 @@
 # ctxlog
 
-Lightweight CLI tool for persistent, sharded context logging across AI agent sessions. Append-only JSONL files with BSD `flock` for safe concurrent access. Zero external dependencies — only Go standard library.
+Lightweight CLI tool for persistent, sharded context logging across AI agent sessions. Per-shard JSONL files with BSD `flock` for safe concurrent access. Zero external dependencies — only Go standard library.
 
 ## Requirements
 
