@@ -7,7 +7,14 @@ Lightweight CLI tool for persistent, sharded context logging across AI agent ses
 - Go 1.22+
 - macOS or Linux (uses BSD `flock` for cross-process file locking)
 
-## Build
+## Install
+
+```bash
+brew tap dudarevnikita/tools
+brew install ctxlog
+```
+
+## Build from source
 
 ```bash
 go build -o ctxlog .
