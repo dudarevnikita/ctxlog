@@ -10,7 +10,7 @@ Lightweight CLI tool for persistent, sharded context logging across AI agent ses
 ## Install
 
 ```bash
-brew tap dudarevnikita/tools
+brew tap dudarievmykyta/tools
 brew install ctxlog
 ```
 

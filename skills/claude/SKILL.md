@@ -35,8 +35,8 @@ If the project has a `CLAUDE.md` file and it does not yet mention `ctxlog`, appe
 ```
 ## Context Logging
 
-This project uses [ctxlog](https://github.com/dudarevnikita/ctxlog) for persistent cross-session memory.
-Installed via: `brew tap dudarevnikita/tools && brew install ctxlog`
+This project uses [ctxlog](https://github.com/dudarievmykyta/ctxlog) for persistent cross-session memory.
+Installed via: `brew tap dudarievmykyta/tools && brew install ctxlog`
 
 Before starting work, read existing context:
 ```

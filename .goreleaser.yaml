@@ -34,11 +34,11 @@ changelog:
 
 brews:
   - repository:
-      owner: dudarevnikita
+      owner: dudarievmykyta
       name: homebrew-tools
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/dudarevnikita/ctxlog"
+    homepage: "https://github.com/dudarievmykyta/ctxlog"
     description: "Lightweight CLI tool for persistent, sharded context logging across AI agent sessions"
     license: "MIT"
     install: |
